@@ -49,27 +49,31 @@ razorpay_client = razorpay.Client(auth=(settings.razorpay_id, settings.razorpay_
 
 
 def payment(request,list_id):
-    if request.method == "GET":
-        try:
-            list = Listing.objects.get(id=list_id)
-            callback_url = 'http://' + str(get_current_site(request)) + "/bookings/callback/"
+    if request.user.is_authenticated:
+        if request.method == "GET":
+            try:
+                list = Listing.objects.get(id=list_id)
+                callback_url = 'http://' + str(get_current_site(request)) + "/bookings/callback/"
 
-            if list.price==None:
-                return HttpResponse("Price is NUll")
-            notes = {'order-type': "basic order from the website", 'key': 'value'}
-            razorpay_order = razorpay_client.order.create(
-                dict(amount=list.price*100, currency="USD", notes=notes, payment_capture='0'))
-            context = {
-                'order_id': razorpay_order['id'],
-                'final_price':int(list.price),
-                'razorpay_merchant_id':settings.razorpay_id,
-                'callback_url':callback_url
-            }
-            book = Bookings.objects.create(listing_id=list,razorpay_order_id=razorpay_order['id'],currency="USD",phone_number=981726253)
-            return render(request, 'payment/paymentsummaryrazorpay.html', context)
-        except ObjectDoesNotExist:
-            return HttpResponse("id doesnt exist")
-    return render(request, 'payment/paymentsummaryrazorpay.html')
+                if list.price==None:
+                    return HttpResponse("Price is NUll")
+                notes = {'order-type': "basic order from the website", 'key': 'value'}
+                razorpay_order = razorpay_client.order.create(
+                    dict(amount=list.price*100, currency="USD", notes=notes, payment_capture='0'))
+                context = {
+                    'order_id': razorpay_order['id'],
+                    'final_price':int(list.price),
+                    'razorpay_merchant_id':settings.razorpay_id,
+                    'callback_url':callback_url
+                }
+                booking = Bookings.objects.get(listing_id=list.id, user_id=request.user.id)
+                booking.razorpay_order_id = razorpay_order['id']
+                booking.save()
+                return render(request, 'payment/paymentsummaryrazorpay.html', context)
+            except ObjectDoesNotExist:
+                return HttpResponse("id doesnt exist")
+        return render(request, 'payment/paymentsummaryrazorpay.html')
+    return HttpResponse("user is not authenticated")
 
                      # { 'order_id': razorpay_order['id'], 'orderId':order.order_id, 'final_price':final_price, 'razorpay_merchant_id':settings.razorpay_id, 'callback_url':callback_url})
 
@@ -77,16 +81,15 @@ def payment(request,list_id):
 
 def allbookings(request):
     booking = Bookings.objects.filter(user_id=request.user)
-    #context = {'allbook':allbook}
-    print(booking)
-    return render(request, "booking/bookings.html", {'booking':booking})
+
+    return render(request, "booking/bookings.html", {'booking':booking,'list_id':""})
 
 @csrf_exempt
 def callback(request):
     def verify_signature(response_data):
-        client = razorpay.Client(auth=(settings.razorpay_id, settings.razorpay_account_id))
-        status = client.utility.verify_payment_signature(response_data)
-        return status
+            client = razorpay.Client(auth=(settings.razorpay_id, settings.razorpay_account_id))
+            status = client.utility.verify_payment_signature(response_data)
+            return status
     if "razorpay_signature" in request.POST:
         payment_id = request.POST.get("razorpay_payment_id", "")
         provider_order_id = request.POST.get("razorpay_order_id", "")
